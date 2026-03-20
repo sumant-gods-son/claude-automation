@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GreenTec Automation</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background:#0f172a; color:#e2e8f0; min-height:100vh; }
+  .container { max-width:1100px; margin:0 auto; padding:2rem; }
+  h1 { font-size:1.8rem; margin-bottom:.5rem; color:#38bdf8; }
+  .status-badge { display:inline-block; padding:.25rem .75rem; border-radius:999px; font-size:.85rem; font-weight:600; }
+  .status-idle { background:#1e3a5f; color:#38bdf8; }
+  .status-running { background:#064e3b; color:#34d399; animation:pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.6} }
+  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:1rem; margin:1.5rem 0; }
+  .card { background:#1e293b; border-radius:12px; padding:1.25rem; }
+  .card h3 { font-size:.8rem; text-transform:uppercase; color:#94a3b8; margin-bottom:.5rem; }
+  .card .value { font-size:2rem; font-weight:700; color:#f8fafc; }
+  .card .sub { font-size:.75rem; color:#64748b; }
+  .panel { background:#1e293b; border-radius:12px; padding:1.5rem; margin:1rem 0; }
+  .panel h2 { font-size:1.1rem; margin-bottom:1rem; color:#e2e8f0; }
+  label { font-size:.85rem; color:#94a3b8; }
+  input[type=number] { background:#0f172a; border:1px solid #334155; color:#e2e8f0; padding:.4rem .6rem; border-radius:6px; width:80px; margin:0 .5rem; }
+  button { background:#2563eb; color:#fff; border:none; padding:.5rem 1.25rem; border-radius:8px; cursor:pointer; font-weight:600; }
+  button:hover { background:#1d4ed8; }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  .log-list { list-style:none; }
+  .log-list li { padding:.6rem 0; border-bottom:1px solid #1e293b; display:flex; justify-content:space-between; }
+  .log-list .ts { color:#64748b; font-size:.8rem; }
+  .log-list .count { color:#38bdf8; font-weight:600; }
+  #logArea { color:#94a3b8; font-size:.9rem; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>GreenTec Automation</h1>
+  <span class="status-badge status-idle" id="statusBadge">Idle</span>
+
+  <div class="cards">
+    <div class="card"><h3>Total leads pushed</h3><div class="value" id="totalLeads">-</div><div class="sub">to GoHighLevel</div></div>
+    <div class="card"><h3>Runs completed</h3><div class="value" id="runCount">-</div><div class="sub">last 20 shown</div></div>
+    <div class="card"><h3>Last run leads</h3><div class="value" id="lastRunLeads">-</div><div class="sub">leads added</div></div>
+    <div class="card"><h3>Schedule</h3><div class="value">Every 6h</div><div class="sub">Render.com cron</div></div>
+  </div>
+
+  <div class="panel">
+    <h2>Manual trigger</h2>
+    <label>Leads target: <input type="number" id="leadsInput" value="50" min="1" max="200"></label>
+    <button id="runBtn" onclick="triggerRun()">Run agent now</button>
+  </div>
+
+  <div class="panel">
+    <h2>Run history</h2>
+    <div id="logArea">Loading...</div>
+  </div>
+</div>
+
+<script>
+async function fetchStatus(){
+  try{
+    const r=await fetch('/api/status');
+    const d=await r.json();
+    const badge=document.getElementById('statusBadge');
+    if(d.running){badge.textContent='Running';badge.className='status-badge status-running';}
+    else{badge.textContent='Idle';badge.className='status-badge status-idle';}
+    if(d.last_result){document.getElementById('lastRunLeads').textContent=d.last_result.total||0;}
+  }catch(e){console.error(e);}
+}
+async function fetchLogs(){
+  try{
+    const r=await fetch('/api/logs');
+    const runs=await r.json();
+    document.getElementById('runCount').textContent=runs.length;
+    let total=0;
+    runs.forEach(r=>total+=r.total);
+    document.getElementById('totalLeads').textContent=total;
+    if(runs.length&&!document.getElementById('lastRunLeads').textContent.match(/\d+/)){
+      document.getElementById('lastRunLeads').textContent=runs[0].total;
+    }
+    let html='<ul class="log-list">';
+    runs.forEach(r=>{
+      html+=`<li><span class="ts">${r.started||r.file}</span><span class="count">${r.total} leads</span></li>`;
+    });
+    html+='</ul>';
+    document.getElementById('logArea').innerHTML=runs.length?html:'<p>No runs yet.</p>';
+  }catch(e){document.getElementById('logArea').textContent='Could not load logs.';}
+}
+async function triggerRun(){
+  const btn=document.getElementById('runBtn');
+  btn.disabled=true;btn.textContent='Starting...';
+  const leads=parseInt(document.getElementById('leadsInput').value)||50;
+  try{
+    await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({leads_per_run:leads})});
+    btn.textContent='Running...';
+    setTimeout(()=>{btn.disabled=false;btn.textContent='Run agent now';fetchStatus();fetchLogs();},5000);
+  }catch(e){btn.disabled=false;btn.textContent='Run agent now';alert('Error: '+e);}
+}
+fetchStatus();fetchLogs();
+setInterval(fetchStatus,10000);
+setInterval(fetchLogs,30000);
+</script>
+</body>
+</html>
