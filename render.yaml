@@ -1,0 +1,29 @@
+services:
+  - type: cron
+    name: greentec-lead-agent
+    runtime: python
+    schedule: "0 */6 * * *"
+    buildCommand: pip install -r claude-automation/lead-agent/requirements.txt
+    startCommand: cd claude-automation/lead-agent && python scheduler.py
+    envVars:
+      - key: SERPAPI_KEY
+        sync: false
+      - key: GHL_API_KEY
+        sync: false
+      - key: GHL_LOCATION_ID
+        sync: false
+
+  - type: web
+    name: greentec-dashboard
+    runtime: python
+    buildCommand: pip install -r claude-automation/dashboard/requirements.txt
+    startCommand: cd claude-automation/dashboard && python app.py
+    envVars:
+      - key: PORT
+        value: "5050"
+      - key: SERPAPI_KEY
+        sync: false
+      - key: GHL_API_KEY
+        sync: false
+      - key: GHL_LOCATION_ID
+        sync: false
