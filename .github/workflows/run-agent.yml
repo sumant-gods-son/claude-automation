@@ -1,0 +1,37 @@
+name: Run Lead Agent
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+
+jobs:
+  run-agent:
+    runs-on: ubuntu-latest
+    env:
+      SERPAPI_KEY: ${{ secrets.SERPAPI_KEY }}
+      GHL_API_KEY: ${{ secrets.GHL_API_KEY }}
+      GHL_LOCATION_ID: ${{ secrets.GHL_LOCATION_ID }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r lead-agent/requirements.txt
+
+      - name: Run lead agent
+        run: python lead-agent/scheduler.py
+
+      - name: Upload run log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-log-${{ github.run_id }}
+          path: lead-agent/logs/
+          retention-days: 30
