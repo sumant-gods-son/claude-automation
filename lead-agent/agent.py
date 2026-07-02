@@ -135,6 +135,19 @@ def url_key(url):
     return host + p.path.rstrip("/")
 
 
+# Standard-format check mirroring GoHighLevel's email validator, so we never
+# post a malformed scraped string (which makes GHL reject the WHOLE contact).
+EMAIL_RE = re.compile(r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,24}$")
+
+def is_valid_email(email):
+    if not email:
+        return False
+    email = email.strip().lower()
+    if len(email) > 254 or ".." in email or email.startswith(".") or "@." in email or ".@" in email:
+        return False
+    return bool(EMAIL_RE.match(email))
+
+
 # ============================================================
 # SERPAPI SEARCH
 # ============================================================
@@ -241,16 +254,20 @@ def has_chat_widget(url, timeout=8):
 
 
 def extract_email(url):
+    junk = ["noreply", "no-reply", "privacy", ".png", ".jpg", ".jpeg",
+            ".gif", ".webp", ".svg"]
     for page in [url, url.rstrip("/") + "/contact"]:
         try:
             resp = requests.get(page, headers=HEADERS, timeout=6)
             found = re.findall(
-                r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}",
+                r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,24}",
                 resp.text)
-            clean = [e for e in found if not any(x in e.lower()
-                     for x in ["noreply", "no-reply", "privacy", ".png", ".jpg"])]
-            if clean:
-                return clean[0]
+            for e in found:
+                e = e.strip().strip(".").lower()
+                if any(x in e for x in junk):
+                    continue
+                if is_valid_email(e):
+                    return e
         except Exception:
             pass
     return ""
@@ -270,7 +287,6 @@ def create_ghl_contact(biz):
         "firstName":   biz.get("name", ""),
         "companyName": biz.get("name", ""),
         "phone":       biz.get("phone", ""),
-        "email":       biz.get("email", ""),
         "website":     biz.get("website", ""),
         "address1":    biz.get("address", ""),
         "country":     biz.get("country_code", ""),
@@ -283,9 +299,22 @@ def create_ghl_contact(biz):
             "source:lead-agent",
         ],
     }
+    # Only attach an email GHL will accept; a bad email 422s the whole contact.
+    email = biz.get("email", "")
+    if is_valid_email(email):
+        payload["email"] = email
+
     try:
         resp = requests.post(f"{GHL_BASE}/contacts/", headers=headers,
                              json=payload, timeout=10)
+        # Safety net: if GHL still rejects on the email, drop it and retry so
+        # the lead (with its website) is never lost over an email issue.
+        if resp.status_code == 422 and "email" in payload and \
+           "email" in resp.text.lower():
+            log.warning(f"  GHL 422 on email '{payload['email']}' - retrying without email")
+            payload.pop("email", None)
+            resp = requests.post(f"{GHL_BASE}/contacts/", headers=headers,
+                                 json=payload, timeout=10)
         if resp.status_code in (200, 201):
             cid = resp.json().get("contact", {}).get("id", "")
             log.info(f"  GHL contact: {biz['name']} [{cid}]")
